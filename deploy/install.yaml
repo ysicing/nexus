@@ -2,45 +2,45 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: nexus
+  name: n3s
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: cluster-admin
 subjects:
   - kind: ServiceAccount
-    name: nexus
+    name: n3s
     namespace: kube-system
 ---
 kind: ServiceAccount
 apiVersion: v1
 metadata:
-  name: nexus
+  name: n3s
   namespace: kube-system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: nexus
-  name: nexus
+    app: n3s
+  name: n3s
   namespace: kube-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nexus
+      app: n3s
   strategy: {}
   template:
     metadata:
       labels:
-        app: nexus
+        app: n3s
     spec:
-      serviceAccountName: nexus
+      serviceAccountName: n3s
       containers:
-        - image: ghcr.io/ysicing/nexus:latest
+        - image: ghcr.io/ysicing/n3s:latest
           imagePullPolicy: Always
-          name: nexus
+          name: n3s
           resources:
             limits:
               cpu: 1000m
@@ -68,8 +68,8 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app: nexus
-  name: nexus
+    app: n3s
+  name: n3s
   namespace: kube-system
 spec:
   ports:
@@ -78,5 +78,5 @@ spec:
       protocol: TCP
       targetPort: 8080
   selector:
-    app: nexus
+    app: n3s
   type: ClusterIP
