@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ysicing/nexus/pkg/auth"
+	"github.com/ysicing/nexus/pkg/cluster"
 	"github.com/ysicing/nexus/pkg/common"
 	"github.com/ysicing/nexus/pkg/handlers"
 	"github.com/ysicing/nexus/pkg/handlers/resources"
@@ -60,7 +61,7 @@ func setupStatic(r *gin.Engine) {
 	})
 }
 
-func setupAPIRouter(r *gin.Engine, k8sClient *kube.K8sClient, promClient *prometheus.Client) {
+func setupAPIRouter(r *gin.Engine, k8sClient *kube.K8sClient, promClient *prometheus.Client, clusterManager *cluster.Manager) {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
@@ -80,34 +81,46 @@ func setupAPIRouter(r *gin.Engine, k8sClient *kube.K8sClient, promClient *promet
 		authGroup.GET("/user", authHandler.RequireAuth(), authHandler.GetUser)
 	}
 
+	// 创建集群处理器
+	clusterHandler := handlers.NewClusterHandler(clusterManager)
+
 	// API routes group (protected)
 	api := r.Group("/api/v1")
 	api.Use(authHandler.RequireAuth(), middleware.ReadonlyMiddleware())
 	{
-		overviewHandler := handlers.NewOverviewHandler(k8sClient, promClient)
-		api.GET("/overview", overviewHandler.GetOverview)
+		// 集群管理路由
+		clusterManagerHandler := cluster.NewHandler(clusterManager)
+		clusterManagerHandler.RegisterRoutes(api)
 
-		promHandler := handlers.NewPromHandler(promClient, k8sClient)
-		api.GET("/prometheus/resource-usage-history", promHandler.GetResourceUsageHistory)
+		// 需要集群上下文的路由组
+		clusterAPI := api.Group("")
+		clusterAPI.Use(clusterHandler.ClusterMiddleware())
+		{
+			overviewHandler := handlers.NewOverviewHandler(k8sClient, promClient)
+			clusterAPI.GET("/overview", overviewHandler.GetOverview)
 
-		api.GET("/prometheus/pods/:namespace/:podName/metrics", promHandler.GetPodMetrics)
+			promHandler := handlers.NewPromHandler(promClient, k8sClient)
+			clusterAPI.GET("/prometheus/resource-usage-history", promHandler.GetResourceUsageHistory)
+			clusterAPI.GET("/prometheus/pods/:namespace/:podName/metrics", promHandler.GetPodMetrics)
 
-		logsHandler := handlers.NewLogsHandler(k8sClient)
-		api.GET("/logs/:namespace/:podName", logsHandler.GetPodLogs)
+			logsHandler := handlers.NewLogsHandler(k8sClient)
+			clusterAPI.GET("/logs/:namespace/:podName", logsHandler.GetPodLogs)
 
-		terminalHandler := handlers.NewTerminalHandler(k8sClient)
-		api.GET("/terminal/:namespace/:podName/ws", terminalHandler.HandleTerminalWebSocket)
+			terminalHandler := handlers.NewTerminalHandler(k8sClient)
+			clusterAPI.GET("/terminal/:namespace/:podName/ws", terminalHandler.HandleTerminalWebSocket)
 
-		nodeTerminalHandler := handlers.NewNodeTerminalHandler(k8sClient)
-		api.GET("/node-terminal/:nodeName/ws", nodeTerminalHandler.HandleNodeTerminalWebSocket)
+			nodeTerminalHandler := handlers.NewNodeTerminalHandler(k8sClient)
+			clusterAPI.GET("/node-terminal/:nodeName/ws", nodeTerminalHandler.HandleNodeTerminalWebSocket)
 
-		searchHandler := handlers.NewSearchHandler(k8sClient)
-		api.GET("/search", searchHandler.GlobalSearch)
+			searchHandler := handlers.NewSearchHandler(k8sClient)
+			clusterAPI.GET("/search", searchHandler.GlobalSearch)
 
-		resourceApplyHandler := handlers.NewResourceApplyHandler(k8sClient)
-		api.POST("/resources/apply", resourceApplyHandler.ApplyResource)
+			resourceApplyHandler := handlers.NewResourceApplyHandler(k8sClient)
+			clusterAPI.POST("/resources/apply", resourceApplyHandler.ApplyResource)
 
-		resources.RegisterRoutes(api, k8sClient)
+			// 注册资源路由，使用集群中间件
+			resources.RegisterRoutesWithCluster(clusterAPI, clusterManager)
+		}
 	}
 }
 
@@ -135,9 +148,27 @@ func main() {
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
 
-	k8sClient, err := kube.NewK8sClient()
+	// 初始化集群管理器
+	clusterManager := cluster.NewManager()
+	if err := clusterManager.Initialize(); err != nil {
+		log.Fatalf("Failed to initialize cluster manager: %v", err)
+	}
+	defer clusterManager.Stop()
+
+	// 获取默认集群客户端用于向后兼容
+	var k8sClient *kube.K8sClient
+	defaultCluster, err := clusterManager.GetDefaultCluster()
 	if err != nil {
-		log.Fatalf("Failed to create K8s client: %v", err)
+		klog.Warningf("No default cluster available: %v", err)
+		klog.Info("Application will start without default cluster - you can add clusters via the web interface")
+		// 创建一个空的占位符客户端
+		k8sClient = &kube.K8sClient{}
+	} else {
+		k8sClient = defaultCluster.Client
+		if k8sClient == nil {
+			klog.Warningf("Default cluster client is nil")
+			k8sClient = &kube.K8sClient{}
+		}
 	}
 
 	// Try to initialize Prometheus client
@@ -151,7 +182,7 @@ func main() {
 	}
 
 	// Setup router
-	setupAPIRouter(r, k8sClient, promClient)
+	setupAPIRouter(r, k8sClient, promClient, clusterManager)
 	setupWebhookRouter(r, k8sClient)
 	setupStatic(r)
 

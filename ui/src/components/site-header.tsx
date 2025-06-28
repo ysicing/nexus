@@ -13,10 +13,15 @@ import { DynamicBreadcrumb } from './dynamic-breadcrumb'
 import { ModeToggle } from './mode-toggle'
 import { Search } from './search'
 import { UserMenu } from './user-menu'
+import { ClusterSelector } from './cluster-selector'
+import { ClusterManagementDialog } from './cluster-management-dialog'
+import { AddClusterDialog } from './add-cluster-dialog'
 
 export function SiteHeader() {
   const isMobile = useIsMobile()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [clusterManagementOpen, setClusterManagementOpen] = useState(false)
+  const [addClusterOpen, setAddClusterOpen] = useState(false)
 
   return (
     <>
@@ -29,6 +34,18 @@ export function SiteHeader() {
           />
           <DynamicBreadcrumb />
           <div className="ml-auto flex items-center gap-2">
+            {!isMobile && (
+              <>
+                <ClusterSelector
+                  onAddCluster={() => setAddClusterOpen(true)}
+                  onManageClusters={() => setClusterManagementOpen(true)}
+                />
+                <Separator
+                  orientation="vertical"
+                  className="mx-2 data-[orientation=vertical]:h-4"
+                />
+              </>
+            )}
             <Search />
             <Plus
               className="h-5 w-5 cursor-pointer text-muted-foreground hover:text-foreground"
@@ -72,6 +89,16 @@ export function SiteHeader() {
       <CreateResourceDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
+      />
+      
+      <ClusterManagementDialog
+        open={clusterManagementOpen}
+        onOpenChange={setClusterManagementOpen}
+      />
+      
+      <AddClusterDialog
+        open={addClusterOpen}
+        onOpenChange={setAddClusterOpen}
       />
     </>
   )

@@ -66,6 +66,11 @@ func NewK8sClient() (*K8sClient, error) {
 		}
 	}
 
+	return NewK8sClientFromConfig(config)
+}
+
+// NewK8sClientFromConfig creates a K8sClient from a given rest.Config
+func NewK8sClientFromConfig(config *rest.Config) (*K8sClient, error) {
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err

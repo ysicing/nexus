@@ -28,7 +28,7 @@ func NewPromHandler(prometheusClient *prometheus.Client, k8sClient *kube.K8sClie
 		k8sClient:          k8sClient,
 		metricsServerCache: make(map[string][]prometheus.UsageDataPoint),
 	}
-	if k8sClient.MetricsClient != nil {
+	if k8sClient != nil && k8sClient.MetricsClient != nil {
 		go func() {
 			for {
 				time.Sleep(time.Minute)

@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"sort"
@@ -60,7 +61,25 @@ func (h *GenericResourceHandler[T, V]) Searchable() bool {
 	return h.enableSearch
 }
 
+// getClient 获取K8s客户端，优先从gin上下文获取，否则使用默认客户端
+func (h *GenericResourceHandler[T, V]) getClient(c *gin.Context) *kube.K8sClient {
+	if c != nil {
+		if client, exists := c.Get("k8sClient"); exists {
+			if k8sClient, ok := client.(*kube.K8sClient); ok {
+				return k8sClient
+			}
+		}
+	}
+	return h.K8sClient
+}
+
 func (h *GenericResourceHandler[T, V]) GetResource(ctx context.Context, namespace, name string) (interface{}, error) {
+	// 注意：这个方法没有 gin.Context，所以无法获取动态客户端
+	// 这里需要传入客户端或者重构这个方法
+	if h.K8sClient == nil || h.K8sClient.Client == nil {
+		return nil, fmt.Errorf("no cluster client available")
+	}
+
 	object := reflect.New(h.objectType).Interface().(T)
 	namespacedName := types.NamespacedName{Name: name}
 	if !h.isClusterScoped {
@@ -75,8 +94,22 @@ func (h *GenericResourceHandler[T, V]) GetResource(ctx context.Context, namespac
 }
 
 func (h *GenericResourceHandler[T, V]) Get(c *gin.Context) {
-	object, err := h.GetResource(c.Request.Context(), c.Param("namespace"), c.Param("name"))
-	if err != nil {
+	client := h.getClient(c)
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "k8s client not available"})
+		return
+	}
+
+	object := reflect.New(h.objectType).Interface().(T)
+	namespacedName := types.NamespacedName{Name: c.Param("name")}
+	if !h.isClusterScoped {
+		namespace := c.Param("namespace")
+		if namespace != "" && namespace != "_all" {
+			namespacedName.Namespace = namespace
+		}
+	}
+
+	if err := client.Client.Get(c.Request.Context(), namespacedName, object); err != nil {
 		if errors.IsNotFound(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -84,6 +117,7 @@ func (h *GenericResourceHandler[T, V]) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	obj, err := meta.Accessor(object)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to access object metadata"})
@@ -150,7 +184,14 @@ func (h *GenericResourceHandler[T, V]) List(c *gin.Context) {
 		listOpts = append(listOpts, client.MatchingFieldsSelector{Selector: fieldSelectorOption})
 	}
 
-	if err := h.K8sClient.Client.List(ctx, objectList, listOpts...); err != nil {
+	// 从上下文中获取集群客户端
+	k8sClient := h.getClient(c)
+	if k8sClient == nil || k8sClient.Client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No cluster available. Please add a cluster first."})
+		return
+	}
+
+	if err := k8sClient.Client.List(ctx, objectList, listOpts...); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -191,8 +232,15 @@ func (h *GenericResourceHandler[T, V]) Create(c *gin.Context) {
 		return
 	}
 
+	// 从上下文中获取集群客户端
+	k8sClient := h.getClient(c)
+	if k8sClient == nil || k8sClient.Client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No cluster available. Please add a cluster first."})
+		return
+	}
+
 	ctx := c.Request.Context()
-	if err := h.K8sClient.Client.Create(ctx, resource); err != nil {
+	if err := k8sClient.Client.Create(ctx, resource); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -216,8 +264,15 @@ func (h *GenericResourceHandler[T, V]) Update(c *gin.Context) {
 		}
 	}
 
+	// 从上下文中获取集群客户端
+	k8sClient := h.getClient(c)
+	if k8sClient == nil || k8sClient.Client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No cluster available. Please add a cluster first."})
+		return
+	}
+
 	ctx := c.Request.Context()
-	if err := h.K8sClient.Client.Update(ctx, resource); err != nil {
+	if err := k8sClient.Client.Update(ctx, resource); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -237,9 +292,16 @@ func (h *GenericResourceHandler[T, V]) Delete(c *gin.Context) {
 		}
 	}
 
+	// 从上下文中获取集群客户端
+	k8sClient := h.getClient(c)
+	if k8sClient == nil || k8sClient.Client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No cluster available. Please add a cluster first."})
+		return
+	}
+
 	ctx := c.Request.Context()
 
-	if err := h.K8sClient.Client.Get(ctx, namespacedName, resource); err != nil {
+	if err := k8sClient.Client.Get(ctx, namespacedName, resource); err != nil {
 		if errors.IsNotFound(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -261,7 +323,7 @@ func (h *GenericResourceHandler[T, V]) Delete(c *gin.Context) {
 		deleteOptions.PropagationPolicy = &propagationPolicy
 	}
 
-	if err := h.K8sClient.Client.Delete(ctx, resource, deleteOptions); err != nil {
+	if err := k8sClient.Client.Delete(ctx, resource, deleteOptions); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -273,6 +335,12 @@ func (h *GenericResourceHandler[T, V]) Search(ctx context.Context, q string, lim
 	if !h.enableSearch || len(q) < 3 {
 		return nil, nil
 	}
+
+	// 注意：这个方法没有 gin.Context，所以无法获取动态客户端
+	if h.K8sClient == nil || h.K8sClient.Client == nil {
+		return nil, fmt.Errorf("no cluster client available")
+	}
+
 	objectList := reflect.New(h.listType).Interface().(V)
 	if err := h.K8sClient.Client.List(ctx, objectList); err != nil {
 		klog.Errorf("failed to list %s: %v", h.name, err)

@@ -47,6 +47,12 @@ tasks:
       - go mod tidy
       - go build -o bin/nexus .
 
+  clean:
+    desc: clean
+    cmds:
+      - rm -rf bin/nexus
+      - rm -rf static/index.html
+
   docker:
     desc: build docker image
     cmds:

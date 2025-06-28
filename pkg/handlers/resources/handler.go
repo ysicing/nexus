@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ysicing/nexus/pkg/cluster"
 	"github.com/ysicing/nexus/pkg/common"
 	"github.com/ysicing/nexus/pkg/kube"
 	appsv1 "k8s.io/api/apps/v1"
@@ -123,6 +124,78 @@ var SearchFuncs = map[string]func(ctx context.Context, query string, limit int64
 
 func RegisterSearchFunc(resourceType string, searchFunc func(ctx context.Context, query string, limit int64) ([]common.SearchResult, error)) {
 	SearchFuncs[resourceType] = searchFunc
+}
+
+// RegisterRoutesWithCluster 注册资源路由，支持多集群
+func RegisterRoutesWithCluster(group *gin.RouterGroup, clusterManager *cluster.Manager) {
+
+	// 动态创建处理器
+	createHandlers := func() map[string]resourceHandler {
+		// 这里使用一个占位符客户端，实际的客户端会在运行时从上下文获取
+		var placeholderClient *kube.K8sClient
+
+		return map[string]resourceHandler{
+			"pods":                   NewGenericResourceHandler[*corev1.Pod, *corev1.PodList](placeholderClient, "pods", false, true),
+			"namespaces":             NewGenericResourceHandler[*corev1.Namespace, *corev1.NamespaceList](placeholderClient, "namespaces", true, false),
+			"nodes":                  NewNodeHandler(placeholderClient),
+			"services":               NewGenericResourceHandler[*corev1.Service, *corev1.ServiceList](placeholderClient, "services", false, true),
+			"endpoints":              NewGenericResourceHandler[*corev1.Endpoints, *corev1.EndpointsList](placeholderClient, "endpoints", false, false),
+			"endpointslices":         NewGenericResourceHandler[*discoveryv1.EndpointSlice, *discoveryv1.EndpointSliceList](placeholderClient, "endpointslices", false, false),
+			"configmaps":             NewGenericResourceHandler[*corev1.ConfigMap, *corev1.ConfigMapList](placeholderClient, "configmaps", false, true),
+			"secrets":                NewGenericResourceHandler[*corev1.Secret, *corev1.SecretList](placeholderClient, "secrets", false, true),
+			"persistentvolumes":      NewGenericResourceHandler[*corev1.PersistentVolume, *corev1.PersistentVolumeList](placeholderClient, "persistentvolumes", true, true),
+			"persistentvolumeclaims": NewGenericResourceHandler[*corev1.PersistentVolumeClaim, *corev1.PersistentVolumeClaimList](placeholderClient, "persistentvolumeclaims", false, true),
+			"serviceaccounts":        NewGenericResourceHandler[*corev1.ServiceAccount, *corev1.ServiceAccountList](placeholderClient, "serviceaccounts", false, false),
+			"crds":                   NewGenericResourceHandler[*apiextensionsv1.CustomResourceDefinition, *apiextensionsv1.CustomResourceDefinitionList](placeholderClient, "crds", true, false),
+			"events":                 NewEventHandler(placeholderClient),
+			"deployments":            NewDeploymentHandler(placeholderClient),
+			"replicasets":            NewGenericResourceHandler[*appsv1.ReplicaSet, *appsv1.ReplicaSetList](placeholderClient, "replicasets", false, false),
+			"statefulsets":           NewGenericResourceHandler[*appsv1.StatefulSet, *appsv1.StatefulSetList](placeholderClient, "statefulsets", false, false),
+			"daemonsets":             NewGenericResourceHandler[*appsv1.DaemonSet, *appsv1.DaemonSetList](placeholderClient, "daemonsets", false, true),
+			"jobs":                   NewGenericResourceHandler[*batchv1.Job, *batchv1.JobList](placeholderClient, "jobs", false, false),
+			"cronjobs":               NewGenericResourceHandler[*batchv1.CronJob, *batchv1.CronJobList](placeholderClient, "cronjobs", false, false),
+			"ingresses":              NewGenericResourceHandler[*networkingv1.Ingress, *networkingv1.IngressList](placeholderClient, "ingresses", false, false),
+			"storageclasses":         NewGenericResourceHandler[*storagev1.StorageClass, *storagev1.StorageClassList](placeholderClient, "storageclasses", true, false),
+			"roles":                  NewGenericResourceHandler[*rbacv1.Role, *rbacv1.RoleList](placeholderClient, "roles", false, false),
+			"rolebindings":           NewGenericResourceHandler[*rbacv1.RoleBinding, *rbacv1.RoleBindingList](placeholderClient, "rolebindings", false, false),
+			"clusterroles":           NewGenericResourceHandler[*rbacv1.ClusterRole, *rbacv1.ClusterRoleList](placeholderClient, "clusterroles", true, false),
+			"clusterrolebindings":    NewGenericResourceHandler[*rbacv1.ClusterRoleBinding, *rbacv1.ClusterRoleBindingList](placeholderClient, "clusterrolebindings", true, false),
+			"podmetrics":             NewGenericResourceHandler[*metricsv1.PodMetrics, *metricsv1.PodMetricsList](placeholderClient, "metrics.k8s.io", false, false),
+			"nodemetrics":            NewGenericResourceHandler[*metricsv1.NodeMetrics, *metricsv1.NodeMetricsList](placeholderClient, "metrics.k8s.io", false, false),
+		}
+	}
+
+	clusterHandlers := createHandlers()
+
+	for name, handler := range clusterHandlers {
+		g := group.Group("/" + name)
+		handler.registerCustomRoutes(g)
+		if handler.IsClusterScoped() {
+			registerClusterScopeRoutes(g, handler)
+		} else {
+			registerNamespaceScopeRoutes(g, handler)
+		}
+
+		if handler.Searchable() {
+			RegisterSearchFunc(name, handler.Search)
+		}
+	}
+
+	// CR处理器需要特殊处理
+	crHandler := NewCRHandler(nil) // 占位符客户端
+	otherGroup := group.Group("/:crd")
+	{
+		otherGroup.GET("", crHandler.List)
+		otherGroup.GET("/_all", crHandler.List)
+		otherGroup.GET("/_all/:name", crHandler.Get)
+		otherGroup.PUT("/_all/:name", crHandler.Update)
+		otherGroup.DELETE("/_all/:name", crHandler.Delete)
+
+		otherGroup.GET("/:namespace", crHandler.List)
+		otherGroup.GET("/:namespace/:name", crHandler.Get)
+		otherGroup.PUT("/:namespace/:name", crHandler.Update)
+		otherGroup.DELETE("/:namespace/:name", crHandler.Delete)
+	}
 }
 
 func GetResource(ctx context.Context, resource, namespace, name string) (interface{}, error) {

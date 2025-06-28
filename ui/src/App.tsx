@@ -13,6 +13,7 @@ import { SiteHeader } from './components/site-header'
 import { ThemeProvider } from './components/theme-provider'
 import { SidebarInset, SidebarProvider } from './components/ui/sidebar'
 import { Toaster } from './components/ui/sonner'
+import { ClusterProvider } from './contexts/cluster-context'
 import { QueryProvider } from './lib/query-provider'
 
 function AppContent() {
@@ -49,9 +50,11 @@ function App() {
         storageKey="vite-ui-color-theme"
       >
         <QueryProvider>
-          <GlobalSearchProvider>
-            <AppContent />
-          </GlobalSearchProvider>
+          <ClusterProvider>
+            <GlobalSearchProvider>
+              <AppContent />
+            </GlobalSearchProvider>
+          </ClusterProvider>
         </QueryProvider>
       </ColorThemeProvider>
     </ThemeProvider>
