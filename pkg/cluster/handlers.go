@@ -8,13 +8,30 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// ClusterManagerInterface 集群管理器接口
+type ClusterManagerInterface interface {
+	GetCluster(clusterID string) (*ClusterInfo, error)
+	ListClusters() []*ClusterInfo
+	AddCluster(name, description, kubeconfigContent string, labels map[string]string) (*ClusterInfo, error)
+	RemoveCluster(clusterID string) error
+	SetDefaultCluster(clusterID string) error
+	UpdateClusterLabels(clusterID string, labels map[string]string) error
+}
+
 // Handler 集群管理处理器
 type Handler struct {
-	manager *Manager
+	manager ClusterManagerInterface
 }
 
 // NewHandler 创建新的集群处理器
 func NewHandler(manager *Manager) *Handler {
+	return &Handler{
+		manager: manager,
+	}
+}
+
+// NewHandlerWithInterface 创建支持接口的集群处理器
+func NewHandlerWithInterface(manager ClusterManagerInterface) *Handler {
 	return &Handler{
 		manager: manager,
 	}

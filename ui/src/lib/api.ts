@@ -15,6 +15,7 @@ import {
 } from '@/types/api'
 
 import { API_BASE_URL, apiClient } from './api-client'
+import { useCluster } from '@/contexts/cluster-context'
 
 type ResourcesItems<T extends ResourceType> = ResourcesTypeMap[T]['items']
 
@@ -28,10 +29,19 @@ export interface PaginatedResult<T> {
   }
 }
 
-// Generic fetch function with error handling
-async function fetchAPI<T>(endpoint: string): Promise<T> {
+// Generic fetch function with error handling and cluster support
+async function fetchAPI<T>(endpoint: string, clusterId?: string): Promise<T> {
   try {
-    return await apiClient.get<T>(`${endpoint}`)
+    if (clusterId) {
+      // Add cluster parameter to the request
+      const separator = endpoint.includes('?') ? '&' : '?'
+      const url = `${endpoint}${separator}cluster=${clusterId}`
+      return await apiClient.get<T>(url, {
+        headers: { 'X-Cluster-ID': clusterId }
+      })
+    } else {
+      return await apiClient.get<T>(endpoint)
+    }
   } catch (error: unknown) {
     console.error('API request failed:', error)
     throw error
@@ -44,7 +54,8 @@ export const fetchResources = <T>(
   limit?: number,
   continueToken?: string,
   labelSelector?: string,
-  fieldSelector?: string
+  fieldSelector?: string,
+  clusterId?: string
 ): Promise<T> => {
   let endpoint = namespace ? `/${resource}/${namespace}` : `/${resource}`
   const params = new URLSearchParams()
@@ -66,7 +77,7 @@ export const fetchResources = <T>(
     endpoint += `?${params.toString()}`
   }
 
-  return fetchAPI<T>(endpoint)
+  return fetchAPI<T>(endpoint, clusterId)
 }
 
 export const fetchDeploymentRelated = (
@@ -315,6 +326,8 @@ export const useResources = <T extends ResourceType>(
     disable?: boolean
   }
 ) => {
+  const { selectedCluster } = useCluster()
+  
   return useQuery({
     queryKey: [
       resource,
@@ -322,6 +335,7 @@ export const useResources = <T extends ResourceType>(
       options?.limit,
       options?.labelSelector,
       options?.fieldSelector,
+      selectedCluster,
     ],
     queryFn: () => {
       return fetchResources<ResourcesTypeMap[T]>(
@@ -330,10 +344,11 @@ export const useResources = <T extends ResourceType>(
         options?.limit,
         undefined,
         options?.labelSelector,
-        options?.fieldSelector
+        options?.fieldSelector,
+        selectedCluster || undefined
       )
     },
-    enabled: !options?.disable,
+    enabled: !options?.disable && !!selectedCluster,
     select: (data: ResourcesTypeMap[T]): ResourcesItems<T> => data.items,
     placeholderData: (prevData) => prevData,
     retry(failureCount, error) {
@@ -360,6 +375,8 @@ export const useResourcesV2 = <T extends ResourceType>(
     PaginatedResult<ResourcesItems<T>>
   >
 > => {
+  const { selectedCluster } = useCluster()
+  
   return useQuery({
     queryKey: [
       resource,
@@ -367,6 +384,7 @@ export const useResourcesV2 = <T extends ResourceType>(
       options?.limit,
       options?.continue,
       options?.labelSelector,
+      selectedCluster,
     ],
     queryFn: () => {
       return fetchResources<ResourcesTypeMap[T]>(
@@ -374,12 +392,16 @@ export const useResourcesV2 = <T extends ResourceType>(
         namespace,
         options?.limit,
         options?.continue,
-        options?.labelSelector
+        options?.labelSelector,
+        undefined,
+        selectedCluster || undefined
       )
     },
     enabled:
-      clusterScopeResources.includes(resource) ||
-      (namespace !== undefined && namespace !== ''),
+      !!selectedCluster && (
+        clusterScopeResources.includes(resource) ||
+        (namespace !== undefined && namespace !== '')
+      ),
     select: (data: ResourcesTypeMap[T]) => {
       return {
         items: data.items,
@@ -441,44 +463,52 @@ export const useDeploymentRelated = (
 }
 
 // Overview API
-const fetchOverview = (): Promise<OverviewData> => {
-  return fetchAPI<OverviewData>('/overview')
+const fetchOverview = (clusterId?: string): Promise<OverviewData> => {
+  return fetchAPI<OverviewData>('/overview', clusterId)
 }
 
 export const useOverview = (options?: { staleTime?: number }) => {
+  const { selectedCluster } = useCluster()
+  
   return useQuery({
-    queryKey: ['overview'],
-    queryFn: fetchOverview,
+    queryKey: ['overview', selectedCluster],
+    queryFn: () => fetchOverview(selectedCluster || undefined),
     staleTime: options?.staleTime || 30000, // 30 seconds cache
     refetchInterval: 30000, // Auto refresh every 30 seconds
+    enabled: !!selectedCluster, // Only fetch when a cluster is selected
   })
 }
 
 // Resource Usage History API
 export const fetchResourceUsageHistory = (
   duration: string,
-  instance?: string
+  instance?: string,
+  clusterId?: string
 ): Promise<ResourceUsageHistory> => {
   const endpoint = `/prometheus/resource-usage-history?duration=${duration}`
   if (instance) {
     return fetchAPI<ResourceUsageHistory>(
-      `${endpoint}&instance=${encodeURIComponent(instance)}`
+      `${endpoint}&instance=${encodeURIComponent(instance)}`,
+      clusterId
     )
   }
-  return fetchAPI<ResourceUsageHistory>(endpoint)
+  return fetchAPI<ResourceUsageHistory>(endpoint, clusterId)
 }
 
 export const useResourceUsageHistory = (
   duration: string,
   options?: { staleTime?: number; instance?: string }
 ) => {
+  const { selectedCluster } = useCluster()
+  
   return useQuery({
-    queryKey: ['resource-usage-history', duration, options?.instance],
-    queryFn: () => fetchResourceUsageHistory(duration, options?.instance),
+    queryKey: ['resource-usage-history', duration, options?.instance, selectedCluster],
+    queryFn: () => fetchResourceUsageHistory(duration, options?.instance, selectedCluster || undefined),
     staleTime: options?.staleTime || 10000, // 10 seconds cache
     refetchInterval: 30000, // Auto refresh every 30 seconds for historical data
     retry: 0,
     placeholderData: (prevData) => prevData, // Keep previous data while loading new data
+    enabled: !!selectedCluster, // Only fetch when a cluster is selected
   })
 }
 

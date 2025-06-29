@@ -23,6 +23,12 @@ type ClusterModel struct {
 	KubeconfigPath    string `gorm:"size:500" json:"kubeconfigPath,omitempty"`
 	KubeconfigContent string `gorm:"type:text" json:"kubeconfigContent,omitempty"`
 
+	// Prometheus 相关字段
+	PrometheusURL      string `gorm:"size:500" json:"prometheusUrl,omitempty"`
+	PrometheusUsername string `gorm:"size:255" json:"prometheusUsername,omitempty"`
+	PrometheusPassword string `gorm:"size:255" json:"prometheusPassword,omitempty"`
+	PrometheusEnabled  bool   `gorm:"default:false" json:"prometheusEnabled"`
+
 	// 健康检查相关
 	LastCheck time.Time `json:"lastCheck"`
 
@@ -55,6 +61,10 @@ type ClusterRepository interface {
 	// 批量操作
 	CreateBatch(clusters []*ClusterModel) error
 	GetByLabels(labels map[string]string) ([]*ClusterModel, error)
+
+	// Prometheus 相关方法
+	UpdatePrometheusConfig(id string, url, username, password string, enabled bool) error
+	GetClustersWithPrometheus() ([]*ClusterModel, error)
 }
 
 // ClusterRepositoryImpl 集群信息仓库实现
@@ -157,5 +167,22 @@ func (r *ClusterRepositoryImpl) GetByLabels(labels map[string]string) ([]*Cluste
 	}
 
 	err := query.Find(&clusters).Error
+	return clusters, err
+}
+
+// UpdatePrometheusConfig 更新 Prometheus 配置
+func (r *ClusterRepositoryImpl) UpdatePrometheusConfig(id string, url, username, password string, enabled bool) error {
+	return r.db.Model(&ClusterModel{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"prometheus_url":      url,
+		"prometheus_username": username,
+		"prometheus_password": password,
+		"prometheus_enabled":  enabled,
+	}).Error
+}
+
+// GetClustersWithPrometheus 获取具有 Prometheus 配置的集群
+func (r *ClusterRepositoryImpl) GetClustersWithPrometheus() ([]*ClusterModel, error) {
+	var clusters []*ClusterModel
+	err := r.db.Where("prometheus_enabled = ?", true).Find(&clusters).Error
 	return clusters, err
 }

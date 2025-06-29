@@ -3,6 +3,7 @@ package prometheus
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -68,6 +69,57 @@ func NewClient(prometheusURL string) (*Client, error) {
 	return &Client{
 		client: v1api,
 	}, nil
+}
+
+// NewClientWithAuth creates a new Prometheus client with authentication
+func NewClientWithAuth(prometheusURL, username, password string) (*Client, error) {
+	config := api.Config{
+		Address: prometheusURL,
+	}
+
+	// 如果提供了用户名和密码，设置 HTTP 基本认证
+	if username != "" && password != "" {
+		config.RoundTripper = &basicAuthRoundTripper{
+			username: username,
+			password: password,
+			next:     api.DefaultRoundTripper,
+		}
+	}
+
+	client, err := api.NewClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("error creating prometheus client: %w", err)
+	}
+
+	v1api := v1.NewAPI(client)
+	return &Client{
+		client: v1api,
+	}, nil
+}
+
+// basicAuthRoundTripper implements http.RoundTripper with basic authentication
+type basicAuthRoundTripper struct {
+	username string
+	password string
+	next     http.RoundTripper
+}
+
+func (rt *basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.SetBasicAuth(rt.username, rt.password)
+	return rt.next.RoundTrip(req)
+}
+
+// Query executes a single Prometheus query
+func (c *Client) Query(query string, ts time.Time) (model.Value, error) {
+	ctx := context.Background()
+	result, warnings, err := c.client.Query(ctx, query, ts)
+	if err != nil {
+		return nil, err
+	}
+	if len(warnings) > 0 {
+		fmt.Printf("Query warnings: %v\n", warnings)
+	}
+	return result, nil
 }
 
 // GetResourceUsageHistory fetches historical usage data for CPU and Memory

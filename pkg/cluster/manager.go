@@ -30,6 +30,16 @@ type ClusterInfo struct {
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	LastCheck   time.Time         `json:"lastCheck"`
 	IsDefault   bool              `json:"isDefault"`
+
+	// Kubeconfig 相关字段
+	KubeconfigPath    string `json:"kubeconfigPath,omitempty"`
+	KubeconfigContent string `json:"kubeconfigContent,omitempty"`
+
+	// Prometheus 相关字段
+	PrometheusURL      string `json:"prometheusUrl,omitempty"`
+	PrometheusUsername string `json:"prometheusUsername,omitempty"`
+	PrometheusPassword string `json:"prometheusPassword,omitempty"`
+	PrometheusEnabled  bool   `json:"prometheusEnabled"`
 }
 
 // ClusterStatus 集群状态

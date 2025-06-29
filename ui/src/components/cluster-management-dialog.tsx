@@ -63,7 +63,7 @@ export function ClusterManagementDialog({
 
   const { data: clustersData, isLoading } = useQuery({
     queryKey: ['clusters'],
-    queryFn: () => apiClient.get<{ clusters: Cluster[], total: number }>('/api/v1/clusters'),
+    queryFn: () => apiClient.get<{ clusters: Cluster[], total: number }>('/clusters'),
     enabled: open,
   })
 
@@ -71,7 +71,7 @@ export function ClusterManagementDialog({
 
   const deleteClusterMutation = useMutation({
     mutationFn: (clusterId: string) =>
-      apiClient.delete(`/api/v1/clusters/${clusterId}`),
+      apiClient.delete(`/clusters/${clusterId}`),
     onSuccess: () => {
       toast.success('集群删除成功')
       queryClient.invalidateQueries({ queryKey: ['clusters'] })
@@ -85,7 +85,7 @@ export function ClusterManagementDialog({
 
   const setDefaultClusterMutation = useMutation({
     mutationFn: (clusterId: string) =>
-      apiClient.put(`/api/v1/clusters/${clusterId}/default`),
+      apiClient.put(`/clusters/${clusterId}/default`),
     onSuccess: () => {
       toast.success('默认集群设置成功')
       queryClient.invalidateQueries({ queryKey: ['clusters'] })

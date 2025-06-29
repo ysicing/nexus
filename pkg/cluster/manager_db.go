@@ -328,38 +328,38 @@ func (m *ManagerWithDB) ensureDefaultCluster() error {
 
 // saveClusterToDB 保存集群信息到数据库
 func (m *ManagerWithDB) saveClusterToDB(clusterInfo *ClusterInfo, isInCluster bool) error {
-	// 转换标签为JSON字符串
+	// 将标签转换为 JSON 字符串
 	labelsJSON := ""
-	if clusterInfo.Labels != nil {
-		if data, err := json.Marshal(clusterInfo.Labels); err == nil {
-			labelsJSON = string(data)
+	if len(clusterInfo.Labels) > 0 {
+		if labelsBytes, err := json.Marshal(clusterInfo.Labels); err == nil {
+			labelsJSON = string(labelsBytes)
 		}
 	}
 
 	clusterModel := &models.ClusterModel{
-		ID:          clusterInfo.ID,
-		Name:        clusterInfo.Name,
-		Description: clusterInfo.Description,
-		Server:      clusterInfo.Server,
-		Version:     clusterInfo.Version,
-		Status:      string(clusterInfo.Status),
-		Context:     clusterInfo.Context,
-		Labels:      labelsJSON,
-		IsDefault:   clusterInfo.IsDefault,
-		IsInCluster: isInCluster,
-		LastCheck:   clusterInfo.LastCheck,
-		CreatedAt:   clusterInfo.CreatedAt,
-		UpdatedAt:   clusterInfo.UpdatedAt,
+		ID:                clusterInfo.ID,
+		Name:              clusterInfo.Name,
+		Description:       clusterInfo.Description,
+		Server:            clusterInfo.Server,
+		Version:           clusterInfo.Version,
+		Status:            string(clusterInfo.Status),
+		Context:           clusterInfo.Context,
+		Labels:            labelsJSON,
+		IsDefault:         clusterInfo.IsDefault,
+		IsInCluster:       isInCluster,
+		KubeconfigPath:    clusterInfo.KubeconfigPath,
+		KubeconfigContent: clusterInfo.KubeconfigContent,
+		LastCheck:         clusterInfo.LastCheck,
+		CreatedAt:         clusterInfo.CreatedAt,
+		UpdatedAt:         clusterInfo.UpdatedAt,
+		// Prometheus 配置（如果有的话）
+		PrometheusURL:      clusterInfo.PrometheusURL,
+		PrometheusUsername: clusterInfo.PrometheusUsername,
+		PrometheusPassword: clusterInfo.PrometheusPassword,
+		PrometheusEnabled:  clusterInfo.PrometheusEnabled,
 	}
 
-	// 尝试创建，如果已存在则更新
-	if err := m.repo.Create(clusterModel); err != nil {
-		if err := m.repo.Update(clusterModel); err != nil {
-			return fmt.Errorf("保存集群到数据库失败: %w", err)
-		}
-	}
-
-	return nil
+	return m.repo.Create(clusterModel)
 }
 
 // modelToClusterInfo 将数据库模型转换为集群信息
@@ -385,6 +385,16 @@ func (m *ManagerWithDB) modelToClusterInfo(model *models.ClusterModel) (*Cluster
 		UpdatedAt:   model.UpdatedAt,
 		LastCheck:   model.LastCheck,
 		IsDefault:   model.IsDefault,
+
+		// Kubeconfig 相关字段
+		KubeconfigPath:    model.KubeconfigPath,
+		KubeconfigContent: model.KubeconfigContent,
+
+		// Prometheus 相关字段
+		PrometheusURL:      model.PrometheusURL,
+		PrometheusUsername: model.PrometheusUsername,
+		PrometheusPassword: model.PrometheusPassword,
+		PrometheusEnabled:  model.PrometheusEnabled,
 	}
 
 	// 对于 in-cluster 配置，尝试重新创建 REST 配置
@@ -661,4 +671,57 @@ func (m *ManagerWithDB) Stop() {
 	if m.db != nil {
 		m.db.Close()
 	}
+}
+
+// UpdateClusterPrometheus 更新集群的 Prometheus 配置
+func (m *ManagerWithDB) UpdateClusterPrometheus(clusterID, url, username, password string, enabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cluster, exists := m.clusters[clusterID]
+	if !exists {
+		return fmt.Errorf("集群 %s 不存在", clusterID)
+	}
+
+	// 更新内存中的配置
+	cluster.PrometheusURL = url
+	cluster.PrometheusUsername = username
+	cluster.PrometheusPassword = password
+	cluster.PrometheusEnabled = enabled
+	cluster.UpdatedAt = time.Now()
+
+	// 更新数据库
+	if err := m.repo.UpdatePrometheusConfig(clusterID, url, username, password, enabled); err != nil {
+		return fmt.Errorf("更新数据库 Prometheus 配置失败: %w", err)
+	}
+
+	klog.Infof("更新集群 %s 的 Prometheus 配置: enabled=%v, url=%s", clusterID, enabled, url)
+	return nil
+}
+
+// GetClusterPrometheusConfig 获取集群的 Prometheus 配置
+func (m *ManagerWithDB) GetClusterPrometheusConfig(clusterID string) (url, username, password string, enabled bool, err error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	cluster, exists := m.clusters[clusterID]
+	if !exists {
+		return "", "", "", false, fmt.Errorf("集群 %s 不存在", clusterID)
+	}
+
+	return cluster.PrometheusURL, cluster.PrometheusUsername, cluster.PrometheusPassword, cluster.PrometheusEnabled, nil
+}
+
+// GetClustersWithPrometheus 获取所有启用了 Prometheus 的集群
+func (m *ManagerWithDB) GetClustersWithPrometheus() []*ClusterInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var clusters []*ClusterInfo
+	for _, cluster := range m.clusters {
+		if cluster.PrometheusEnabled && cluster.PrometheusURL != "" {
+			clusters = append(clusters, cluster)
+		}
+	}
+	return clusters
 }

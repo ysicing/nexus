@@ -1,6 +1,92 @@
-# Nexus 数据库集成示例
+# Nexus 示例
 
-本目录包含了 Nexus 项目数据库集成功能的示例代码，演示如何使用数据库存储集群信息。
+本目录包含了 Nexus 项目的使用示例。
+
+## 📋 示例列表
+
+### 1. 数据库集成示例 (`database_example.go`)
+
+演示如何使用数据库存储集群配置：
+
+```bash
+# 设置数据库连接
+export DATABASE_DSN="sqlite:./data/nexus.db"
+
+# 运行示例
+go run examples/database_example.go
+```
+
+### 2. Prometheus 集成示例 (`prometheus_example.go`)
+
+演示如何在数据库中配置 Prometheus：
+
+```bash
+# 设置数据库连接
+export DATABASE_DSN="sqlite:./data/nexus.db"
+
+# 运行示例
+go run examples/prometheus_example.go
+```
+
+## 🔄 迁移指南
+
+### 从环境变量迁移到数据库配置
+
+**旧方式（已废弃）：**
+```bash
+export PROMETHEUS_URL="http://prometheus:9090"
+```
+
+**新方式（推荐）：**
+1. 配置数据库连接：
+   ```bash
+   export DATABASE_DSN="sqlite:./data/nexus.db"
+   ```
+
+2. 通过 API 或示例程序配置 Prometheus：
+   ```bash
+   go run examples/prometheus_example.go
+   ```
+
+3. 或者通过 Web 界面在集群管理页面配置 Prometheus
+
+## 🎯 核心优势
+
+### 数据库存储方案
+- ✅ **持久化存储**：配置不会因重启丢失
+- ✅ **多集群支持**：每个集群独立的 Prometheus 配置
+- ✅ **动态配置**：无需重启即可更新配置
+- ✅ **统一管理**：集群和监控配置统一存储
+
+### 环境变量方案（已废弃）
+- ❌ **单一配置**：只能配置一个全局 Prometheus
+- ❌ **静态配置**：需要重启才能更新
+- ❌ **配置分散**：集群和监控配置分离
+
+## 🚀 快速开始
+
+1. **启动 Nexus（使用数据库）：**
+   ```bash
+   export DATABASE_DSN="sqlite:./data/nexus.db"
+   go run main.go
+   ```
+
+2. **添加集群和 Prometheus 配置：**
+   ```bash
+   go run examples/prometheus_example.go
+   ```
+
+3. **访问 Web 界面：**
+   ```
+   http://localhost:8080
+   ```
+
+## 💡 注意事项
+
+- `PROMETHEUS_URL` 环境变量已被废弃，但仍向后兼容
+- 建议使用数据库配置方式以获得更好的功能支持
+- 数据库配置支持认证（用户名/密码）
+- 支持多种数据库：SQLite、MySQL、PostgreSQL
 
 ## 示例说明
 
@@ -14,6 +100,16 @@
 4. **集群持久化** - 集群信息的数据库存储和恢复
 5. **动态集群管理** - 添加、删除、更新集群配置
 
+### prometheus_example.go
+
+这个示例演示了：
+
+1. **Prometheus 数据库集成** - 如何将 Prometheus 配置存储到数据库
+2. **集群级别配置** - 每个集群独立的 Prometheus 配置
+3. **认证支持** - 支持用户名密码认证
+4. **动态配置管理** - 运行时更新和重新加载配置
+5. **健康检查** - Prometheus 连接状态检查
+
 ## 运行示例
 
 ### 前提条件
@@ -25,6 +121,9 @@
 ```bash
 # 在项目根目录下运行
 go run examples/database_example.go
+
+# 运行 Prometheus 集成示例
+go run examples/prometheus_example.go
 ```
 
 ### 使用不同数据库

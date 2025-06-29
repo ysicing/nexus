@@ -154,6 +154,13 @@ CREATE TABLE clusters (
     is_in_cluster BOOLEAN DEFAULT FALSE,
     kubeconfig_path VARCHAR(500),
     kubeconfig_content TEXT,
+    
+    -- Prometheus 相关字段
+    prometheus_url VARCHAR(500),
+    prometheus_username VARCHAR(255),
+    prometheus_password VARCHAR(255),
+    prometheus_enabled BOOLEAN DEFAULT FALSE,
+    
     last_check TIMESTAMP,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
@@ -164,7 +171,67 @@ CREATE TABLE clusters (
 CREATE INDEX idx_clusters_is_default ON clusters(is_default);
 CREATE INDEX idx_clusters_is_in_cluster ON clusters(is_in_cluster);
 CREATE INDEX idx_clusters_status ON clusters(status);
+CREATE INDEX idx_clusters_prometheus_enabled ON clusters(prometheus_enabled);
 ```
+
+## Prometheus 集成
+
+Nexus 支持为每个集群单独配置 Prometheus，实现集群级别的监控数据收集。
+
+### Prometheus 配置字段
+
+- **prometheus_url**: Prometheus 服务器地址
+- **prometheus_username**: 认证用户名（可选）
+- **prometheus_password**: 认证密码（可选）
+- **prometheus_enabled**: 是否启用 Prometheus
+
+### 配置示例
+
+#### 通过 API 配置
+
+```bash
+# 为集群配置 Prometheus
+curl -X PUT "http://localhost:8080/api/v1/clusters/my-cluster/prometheus" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "http://prometheus.example.com:9090",
+    "username": "admin",
+    "password": "secret",
+    "enabled": true
+  }'
+```
+
+#### 通过数据库直接配置
+
+```sql
+-- 为集群启用 Prometheus
+UPDATE clusters SET 
+  prometheus_url = 'http://prometheus.example.com:9090',
+  prometheus_username = 'admin',
+  prometheus_password = 'secret',
+  prometheus_enabled = true
+WHERE id = 'my-cluster';
+```
+
+### 查询 Prometheus 配置
+
+```sql
+-- 查看所有启用 Prometheus 的集群
+SELECT id, name, prometheus_url, prometheus_enabled 
+FROM clusters 
+WHERE prometheus_enabled = true;
+
+-- 查看特定集群的 Prometheus 配置
+SELECT prometheus_url, prometheus_username, prometheus_enabled 
+FROM clusters 
+WHERE id = 'my-cluster';
+```
+
+### 安全注意事项
+
+1. **密码保护**: Prometheus 密码以明文存储，建议使用强密码
+2. **网络安全**: 确保 Prometheus 服务器的网络访问安全
+3. **权限控制**: 为 Prometheus 用户配置最小必要权限
 
 ## 使用示例
 
@@ -324,75 +391,3 @@ CREATE INDEX idx_clusters_labels ON clusters(labels);
 CREATE INDEX idx_clusters_server ON clusters(server);
 CREATE INDEX idx_clusters_updated_at ON clusters(updated_at);
 ```
-
-### 定期清理
-
-```sql
--- 清理软删除的记录
-DELETE FROM clusters WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL 30 DAY;
-
--- 更新统计信息
-ANALYZE TABLE clusters;
-```
-
-## 安全考虑
-
-### 数据库安全
-
-1. **访问控制**: 使用专用数据库用户，限制权限
-2. **网络安全**: 配置防火墙，限制数据库访问
-3. **传输加密**: 启用 SSL/TLS 连接
-4. **数据加密**: 考虑数据库级别的加密
-
-### 敏感信息保护
-
-```bash
-# 使用环境变量而非命令行参数
-export DB_PASSWORD=secure_password
-
-# 设置文件权限
-chmod 600 .env
-
-# 使用密钥管理服务
-export DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id nexus-db-password --query SecretString --output text)
-```
-
-## 备份和恢复
-
-### 自动备份
-
-```bash
-#!/bin/bash
-# backup_nexus.sh
-DATE=$(date +%Y%m%d_%H%M%S)
-mysqldump nexus > "nexus_backup_${DATE}.sql"
-aws s3 cp "nexus_backup_${DATE}.sql" s3://nexus-backups/
-```
-
-### 恢复数据
-
-```bash
-# 从备份恢复
-mysql nexus < nexus_backup_20240101_120000.sql
-
-# 重启 Nexus 服务
-systemctl restart nexus
-```
-
-## 最佳实践
-
-1. **环境隔离**: 不同环境使用不同的数据库
-2. **监控告警**: 设置数据库连接和性能监控
-3. **定期备份**: 建立自动化备份策略
-4. **版本控制**: 跟踪数据库模式变更
-5. **容量规划**: 根据集群数量规划存储容量
-
-## 相关文档
-
-- [多集群管理](MULTI_CLUSTER.md)
-- [API 文档](../api/)
-- [部署指南](../deploy/)
-
----
-
-如有问题，请查看 [FAQ](../FAQ.md) 或提交 [Issue](https://github.com/ysicing/nexus/issues)。 

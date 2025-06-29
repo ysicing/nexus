@@ -15,7 +15,6 @@ const (
 
 var (
 	Port            = "8080"
-	PrometheusURL   = ""
 	JwtSecret       = ""
 	OAuthEnabled    = false
 	OAuthProviders  = ""
@@ -35,11 +34,12 @@ var (
 )
 
 func LoadEnvs() {
+	// 注意：PROMETHEUS_URL 已废弃，现在使用数据库存储 Prometheus 配置
+	// 保留此警告以提醒用户迁移到新的配置方式
 	if url := os.Getenv("PROMETHEUS_URL"); url != "" {
-		PrometheusURL = url
-	} else {
-		klog.Warning("PROMETHEUS_URL is not set, some features may not work as expected")
+		klog.Warning("PROMETHEUS_URL environment variable is deprecated. Please use database-based Prometheus configuration instead.")
 	}
+
 	if secret := os.Getenv("JWT_SECRET"); secret != "" {
 		JwtSecret = secret
 	} else {

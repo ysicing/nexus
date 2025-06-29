@@ -40,7 +40,7 @@ export function AddClusterDialog({
 
   const addClusterMutation = useMutation({
     mutationFn: (data: typeof formData) =>
-      apiClient.post('/api/v1/clusters', data),
+      apiClient.post('/clusters', data),
     onSuccess: () => {
       toast.success('集群添加成功')
       onSuccess?.()
